@@ -7,6 +7,9 @@ from typing import Dict, Any
 from app.database.connection import db, get_db_pool
 from app.services.extractor import extract_decision
 from app.services.embeddings import generate_embedding
+from app.services.retrieval import find_relevant_documents
+from app.services.evaluator import evaluate_drift
+from app.services.github import create_doc_fix_pr
 
 app = FastAPI(title="Autonomous Living Knowledge Engine MVP")
 
@@ -74,13 +77,32 @@ async def process_event(event_source: str, payload: Dict[Any, Any]):
         if decision.is_architectural_decision:
             embedding = await generate_embedding(decision.rationale)
 
-            await conn.execute(
+            decision_id = await conn.fetchval(
                 """
                 INSERT INTO decisions (workspace_id, event_id, title, rationale, impacted_scope, embedding)
                 VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING id
                 """,
                 workspace_id, event_id, decision.title, decision.rationale, decision.impacted_systems, embedding
             )
+
+            # --- Milestone 3 Pipeline ---
+            print(f"Decision logged. ID: {decision_id}. Scanning for drift...")
+
+            # 4. Retrieve candidate documents
+            relevant_docs = await find_relevant_documents(embedding, workspace_id)
+            print(f"Found {len(relevant_docs)} candidate documents for review.")
+
+            for doc in relevant_docs:
+                # 5. Evaluate drift
+                evaluation = await evaluate_drift(decision, doc)
+
+                # 6. Trigger action if drift detected
+                if evaluation.has_drift:
+                    print(f"🚨 DRIFT DETECTED in {doc['file_path']} (Severity: {evaluation.severity})")
+                    await create_doc_fix_pr(workspace_id, str(decision_id), doc, evaluation)
+                else:
+                    print(f"✅ No drift in {doc['file_path']}")
 
 
 @app.post("/webhooks/github")
