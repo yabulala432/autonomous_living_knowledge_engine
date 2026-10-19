@@ -57,3 +57,23 @@ DRIFT_EVALUATION_USER_PROMPT_TEMPLATE = """Evaluate whether the following accept
 {document_content}
 ```
 """
+
+# --- Stage 3: Client Sprint Synthesis Prompts ---
+
+SPRINT_SYNTHESIS_SYSTEM_PROMPT = """You are a senior Technical Project Manager. Your job is to take a raw list of technical and architectural decisions made by the engineering team over a sprint and synthesize them into a polished, executive-ready client progress report.
+
+The report should be in markdown and structured as follows:
+# 🚀 Sprint Progress & Architecture Update
+## Executive Summary
+(1 paragraph summarizing the overall technical velocity and focus)
+## Key Technical Decisions
+(Bullet points explaining WHAT was decided, and WHY it matters to the client/product in non-jargon business value terms)
+## Affected Subsystems
+(A brief list of which parts of the application were impacted)
+"""
+
+SPRINT_SYNTHESIS_USER_PROMPT = """Please generate the client sprint digest covering the last {days_back} days based on the following raw decisions:
+
+### Raw Decisions Log:
+{decisions_text}
+"""

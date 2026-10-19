@@ -10,6 +10,7 @@ from app.services.embeddings import generate_embedding
 from app.services.retrieval import find_relevant_documents
 from app.services.evaluator import evaluate_drift
 from app.services.github import create_doc_fix_pr
+from app.services.synthesis import generate_sprint_digest
 
 app = FastAPI(title="Autonomous Living Knowledge Engine MVP")
 
@@ -128,6 +129,13 @@ async def slack_webhook(request: Request, background_tasks: BackgroundTasks):
     background_tasks.add_task(process_event, "slack", payload)
 
     return {"status": "ok", "message": "Slack event received and processing started"}
+
+@app.get("/reports/sprint")
+async def get_sprint_digest(days: int = 7):
+    # Mocking workspace_id for the MVP
+    workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000000")
+    report = await generate_sprint_digest(workspace_id, days_back=days)
+    return {"report": report}
 
 @app.get("/health")
 def health_check():
