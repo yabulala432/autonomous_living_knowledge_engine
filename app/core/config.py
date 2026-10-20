@@ -9,6 +9,13 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
 
+    # GitHub
+    github_token: str = ""
+
+    # Telegram
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

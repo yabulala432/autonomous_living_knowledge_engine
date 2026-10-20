@@ -11,6 +11,7 @@ from app.services.retrieval import find_relevant_documents
 from app.services.evaluator import evaluate_drift
 from app.services.github import create_doc_fix_pr
 from app.services.synthesis import generate_sprint_digest
+from app.services.telegram import send_telegram_alert
 
 app = FastAPI(title="Autonomous Living Knowledge Engine MVP")
 
@@ -43,6 +44,12 @@ async def process_event(event_source: str, payload: Dict[Any, Any]):
         source_id = payload.get("event", {}).get("ts", "unknown_ts")
         author = payload.get("event", {}).get("user", "unknown_user")
         raw_content = payload.get("event", {}).get("text", "")
+    elif event_source == "telegram":
+        message = payload.get("message") or payload.get("channel_post") or {}
+        source_id = str(message.get("message_id", "unknown_msg"))
+        from_user = message.get("from") or {}
+        author = from_user.get("username") or from_user.get("first_name", "unknown_user")
+        raw_content = message.get("text") or message.get("caption", "")
 
     async with pool.acquire() as conn:
         # We need a workspace to exist for the foreign key, so we'll do an upsert or ignore it in MVP logic.
@@ -101,7 +108,18 @@ async def process_event(event_source: str, payload: Dict[Any, Any]):
                 # 6. Trigger action if drift detected
                 if evaluation.has_drift:
                     print(f"🚨 DRIFT DETECTED in {doc['file_path']} (Severity: {evaluation.severity})")
-                    await create_doc_fix_pr(workspace_id, str(decision_id), doc, evaluation)
+                    pr_url = await create_doc_fix_pr(workspace_id, str(decision_id), doc, evaluation)
+
+                    # Send notification to Telegram
+                    alert_text = (
+                        f"🚨 *Documentation Drift Detected!*\n\n"
+                        f"📄 *File:* `{doc['file_path']}`\n"
+                        f"⚠️ *Severity:* {evaluation.severity.upper()}\n"
+                        f"💡 *Decision:* {decision.title}\n\n"
+                        f"📝 *Analysis:*\n{evaluation.drift_analysis}\n\n"
+                        f"🔗 [Review Pull Request]({pr_url})"
+                    )
+                    await send_telegram_alert(alert_text)
                 else:
                     print(f"✅ No drift in {doc['file_path']}")
 
@@ -130,12 +148,32 @@ async def slack_webhook(request: Request, background_tasks: BackgroundTasks):
 
     return {"status": "ok", "message": "Slack event received and processing started"}
 
+@app.post("/webhooks/telegram")
+async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    # Enqueue processing task
+    background_tasks.add_task(process_event, "telegram", payload)
+
+    return {"status": "ok", "message": "Telegram event received and processing started"}
+
 @app.get("/reports/sprint")
 async def get_sprint_digest(days: int = 7):
     # Mocking workspace_id for the MVP
     workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000000")
     report = await generate_sprint_digest(workspace_id, days_back=days)
     return {"report": report}
+
+@app.post("/reports/sprint/telegram")
+async def send_sprint_digest_to_telegram(days: int = 7):
+    workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000000")
+    report = await generate_sprint_digest(workspace_id, days_back=days)
+    msg = f"📊 *Executive Sprint Digest (Past {days} Days)*\n\n{report}"
+    success = await send_telegram_alert(msg)
+    return {"sent_to_telegram": success, "report": report}
 
 @app.get("/health")
 def health_check():
